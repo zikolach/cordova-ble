@@ -22,6 +22,9 @@ import org.json.JSONException;
 import org.json.JSONObject;
 import android.bluetooth.*;
 import android.bluetooth.BluetoothAdapter.LeScanCallback;
+import android.bluetooth.le.ScanCallback;
+import android.bluetooth.le.ScanResult;
+import 	android.bluetooth.le.BluetoothLeScanner;
 import android.content.*;
 import android.app.Activity;
 import java.util.HashMap;
@@ -32,6 +35,50 @@ import java.io.UnsupportedEncodingException;
 import android.util.Base64;
 
 public class BLE extends CordovaPlugin implements LeScanCallback {
+
+  private class MyScanCallback extends ScanCallback {
+    // Callback when batch results are delivered.
+    public void onBatchScanResults(List<ScanResult> results) {
+      if(mScanCallbackContext == null) {
+        return;
+      }
+      for (ScanResult result : results) {
+        try {
+          JSONObject o = new JSONObject();
+          o.put("address", result.getDevice().getAddress());
+          o.put("rssi", result.getRssi());
+          o.put("name", result.getDevice().getName());
+          o.put("scanRecord", Base64.encodeToString(result.getScanRecord().getBytes(), Base64.NO_WRAP));
+          keepCallback(mScanCallbackContext, o);
+        } catch(JSONException e) {
+          mScanCallbackContext.error(e.toString());
+        }
+      }
+    }
+    // Callback when scan could not be started.
+    public void	onScanFailed(int errorCode) {
+      mScanCallbackContext.error("Android function startScan failed");
+    }
+    //Callback when a BLE advertisement has been found.
+    public void	onScanResult(int callbackType, ScanResult result) {
+      if(mScanCallbackContext == null) {
+        return;
+      }
+      try {
+        JSONObject o = new JSONObject();
+        o.put("address", result.getDevice().getAddress());
+        o.put("rssi", result.getRssi());
+        o.put("name", result.getDevice().getName());
+        o.put("scanRecord", Base64.encodeToString(result.getScanRecord().getBytes(), Base64.NO_WRAP));
+        keepCallback(mScanCallbackContext, o);
+      } catch(JSONException e) {
+        mScanCallbackContext.error(e.toString());
+      }
+    }
+  }
+
+  private ScanCallback mScanCallback;
+
 	// Used by startScan().
 	private CallbackContext mScanCallbackContext;
 
@@ -61,6 +108,7 @@ public class BLE extends CordovaPlugin implements LeScanCallback {
 	public void initialize(final CordovaInterface cordova, CordovaWebView webView) {
 		super.initialize(cordova, webView);
 		mContext = webView.getContext();
+    mScanCallback = new MyScanCallback();
 
 		if(!mRegisteredReceiver) {
 			mContext.registerReceiver(new BluetoothStateReceiver(), new IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED));
@@ -179,15 +227,13 @@ public class BLE extends CordovaPlugin implements LeScanCallback {
 	// API implementation. See ble.js for documentation.
 	private void startScan(final CordovaArgs args, final CallbackContext callbackContext) {
 		final BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-		final LeScanCallback self = this;
+		final ScanCallback self = mScanCallback;
 		checkPowerState(adapter, callbackContext, new Runnable() {
 			@Override
 			public void run() {
-				if(!adapter.startLeScan(self)) {
-					callbackContext.error("Android function startLeScan failed");
-					return;
-				}
+        final BluetoothLeScanner scanner = adapter.getBluetoothLeScanner();
 				mScanCallbackContext = callbackContext;
+        scanner.startScan(self);
 			}
 		});
 	}
@@ -213,7 +259,8 @@ public class BLE extends CordovaPlugin implements LeScanCallback {
 	// API implementation.
 	private void stopScan(final CordovaArgs args, final CallbackContext callbackContext) {
 		BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-		adapter.stopLeScan(this);
+    final BluetoothLeScanner scanner = adapter.getBluetoothLeScanner();
+		scanner.stopScan(mScanCallback);
 		mScanCallbackContext = null;
 	}
 
